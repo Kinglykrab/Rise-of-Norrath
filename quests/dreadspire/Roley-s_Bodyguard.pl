@@ -1,0 +1,13 @@
+sub EVENT_SPAWN {
+	$npc->SetLevel(85);
+	$npc->ModifyNPCStat("max_hp", 5000000);
+	$npc->SetHP($npc->GetMaxHP());
+	$npc->ModifyNPCStat($_, 10000) for ("agi", "cha", "dex", "_int", "sta", "str", "wis");
+	$npc->ModifyNPCStat($_, 50) for ("cr", "dr", "fr", "mr", "pr", "phr");
+	$npc->ModifyNPCStat("min_hit", 4500);
+	$npc->ModifyNPCStat("max_hit", 5000);
+	$npc->ModifyNPCStat("avoidance", 65);
+	$npc->ModifyNPCStat($_, 1000000) for ("ac", "atk", "accuracy");
+	$npc->ModifyNPCStat("attack_delay", 10);
+	$npc->ModifyNPCStat("special_abilities", "3,1^4,1^5,1^6,1^7,1^21,1");
+}
