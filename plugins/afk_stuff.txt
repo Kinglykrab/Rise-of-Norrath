@@ -1,0 +1,21 @@
+ else {
+		if ($zonesn eq "freeporttemple") {
+			if ($client->GetRace() != 127) {
+				quest::stoptimer("afk_check");
+				quest::settimer("afk_check", 180);
+			} else {
+				$client->SetRace($client->GetBaseRace());
+				$client->SetGender($client->GetBaseGender());
+				if ($client->GetPetID() > 0) {
+					if ($entity_list->GetNPCByID($client->GetPetID())) {
+						my $pet_entity = $entity_list->GetNPCByID($client->GetPetID());
+						$pet_entity->SetRace($pet_entity->GetBaseRace());
+					}
+				}
+				plugin::Message("You are no longer A.F.K. (Away From Keyboard)");
+				$client->SetEntityVariable("afk", 0);
+				quest::stoptimer($_) for ("afk_check", "award_funny_money");
+				quest::settimer("afk_check", 180);
+			}
+		}
+	}

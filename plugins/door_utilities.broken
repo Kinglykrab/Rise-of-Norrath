@@ -1,0 +1,313 @@
+sub HandleDoorCommands {
+	my $text = plugin::val('text');
+	my $door = plugin::val('door');
+	my $client = plugin::val('client');
+	my $entity_list = plugin::val('entity_list');
+	my $zonesn = plugin::val('$zonesn');
+	my $door_entity;
+	if ($client->GetEntityVariable("last_door_clicked") > 0) {
+		$door_entity = $entity_list->GetDoorsByDoorID($client->GetEntityVariable("last_door_clicked"));
+	} elsif ($client->GetEntityVariable("last_door_created") > 0) {
+		$door_entity = $entity_list->GetDoorsByID($client->GetEntityVariable("last_door_created"));
+	}
+	
+	my @args = split(' ', $text);
+	if ($args[0] eq "#door") {
+		if (!$args[1]) {
+			plugin::Message("#door - OPTIONS");
+			plugin::Message("#door setincline <incline> - sets selected door incline");
+			plugin::Message("#door opentype <opentype> - sets selected door opentype");
+			plugin::Message("#door model <modelname> - Changes door model for selected door");
+			plugin::Message("#door save - Creates database entry for highlighted door");
+			plugin::Message(quest::saylink("#door list", 1) . " - lists doors in zone");
+			plugin::Message(quest::saylink("#door edit", 1) . " - Brings up editing interface for selected door");
+		} else {
+			my $sub_command = $args[1];
+			if ($sub_command eq "save"){
+				$door_entity->CreateDatabaseEntry();
+				plugin::Message("Door saved");
+			} elsif ($sub_command eq "movetome") {
+				my ($client_x, $client_y, $client_z) = ($client->GetX(), $client->GetY(), $client->GetZ());
+				$door_entity->SetLocation($client_x, $client_y, $client_z);
+			} elsif ($sub_command eq "create"){
+				if ($args[2]) {
+					my ($client_x, $client_y, $client_z, $client_heading) = ($client->GetX(), $client->GetY(), $client->GetZ(), $client->GetHeading());
+					my $door_name = uc($args[2]);
+					my $door_size = 100;
+					if ($args[3]) {
+						$door_size = $args[3];
+					}
+					my $door_id = quest::createdoor($door_name, $client_x, $client_y, $client_z, $client_heading, 58, $door_size); 
+					$client->SetEntityVariable("last_door_created", $door_id);
+					plugin::Message("Created Door ID: " . $door_id);
+				} else {
+					plugin::Message("Usage: #door create door_name [door_size=100]");
+				}
+			} elsif ($sub_command eq "changemodelqueue") {
+				my $door_name = $door_entity->GetModelName();
+				plugin::Message("Type name of new model, current model is $door_name.");
+				plugin::Message("#door model <modelname> or select from " . quest::saylink("#door showmodelszone", 1, "Local Zone") . " " . quest::saylink("#door showmodelsglobal", 1, "Global"));
+			} elsif ($sub_command eq "size"){
+				my $door_size = $args[2];
+				$door_entity->SetSize($door_size);
+			} elsif ($sub_command eq "showmodelsglobal") {
+				my $connect = plugin::LoadMySQL();
+				my $models_message = "";
+				plugin::Message("Loading files...");
+				$query_handle = $connect->prepare("SELECT file_from FROM `cust_obj_data` WHERE `object_name` LIKE '%IT%' AND zoneid = 0 AND object_name NOT LIKE '%OBJ%' GROUP by file_from;");
+				$query_handle->execute();
+				while(@row = $query_handle->fetchrow_array()) {
+					my $file_from = $row[0];
+					if (length($models_message) > 4000) {
+						plugin::Message($models_message); 
+						$models_message = quest::saylink("#door showmodelsfromfile $file_from", 1, $file_from) . "-";
+					} else {
+						$models_message .= quest::saylink("#door showmodelsfromfile $file_from", 1, $file_from) . "-";
+					}
+				}
+				plugin::Message($models_message);
+			} elsif ($sub_command eq "showmodelsfromfile") {
+				my $file_from = $args[2];
+				my $connect = plugin::LoadMySQL();
+				my $models_message = "";
+				plugin::Message("Loading models from " . $args[2]);
+				$query_handle = $connect->prepare("SELECT `object_name` FROM `cust_obj_data` WHERE `file_from` = '$file_from';");
+				$query_handle->execute();
+				while (@row = $query_handle->fetchrow_array()) {
+					my $object_name = $row[0];
+					if (length($models_message) > 4000) {
+						plugin::Message($models_message);
+						$models_message = quest::saylink("#door model $object_name", 1, $object_name) . "-";
+					} else {
+						$models_message .= quest::saylink("#door model $object_name", 1, $object_name) . "-";
+					}
+				}
+				plugin::Message($models_message);
+			} elsif ($sub_command eq "showmodelszone"){
+				my $connect = plugin::LoadMySQL();
+				my $models_message = "";
+				plugin::Message("Loading models from $zonesn");
+				$query_handle = $connect->prepare("SELECT `object_name` FROM `cust_obj_data` WHERE `zonesn` = '$zonesn';");
+				$query_handle->execute();
+				while(@row = $query_handle->fetchrow_array()) {
+					my $object_name = $row[0];
+					if (length($models_message) > 4000) {
+						plugin::Message($models_message); 
+						$models_message = quest::saylink("#door model $object_name", 1, $object_name) . "-";
+					} else {
+						$models_message .= quest::saylink("#door model $object_name", 1, $object_name) . "-";
+					}
+				}
+				plugin::Message($models_message);
+			} elsif ($sub_command eq "list") {
+				my @doors_list = $entity_list->GetDoorsList(); 
+				foreach my $door_list_entity (sort {$a->GetDoorID() <=> $b->GetDoorID()} @doors_list) {
+					my ($door_id, $door_x, $door_y, $door_z, $door_name, $door_size, $door_open_type) = ($door_list_entity->GetDoorID(), $door_list_entity->GetX(), $door_list_entity->GetY(), $door_list_entity->GetZ(), $door_list_entity->GetModelName(), $door_list_entity->GetSize(), $door_list_entity->GetOpenType());
+					my ($gm_x, $gm_y, $gm_z) = (int($door_x), int($door_y), int($door_z));
+					plugin::Message("ID: $door_id " . quest::saylink("#gmgoto $gm_x $gm_y $gm_z", 1, "$door_name X: $door_x Y: $door_y Z: $door_z Size: $door_size Open Type: $door_open_type")); 
+				} 
+			} elsif ($sub_command eq "model") {
+				if ($args[2]) {
+					my $door_name = uc($args[2]);
+					$door_entity->SetModelName($door_name);
+				}
+			} elsif ($sub_command eq "opentype") {
+				if ($args[2]) {
+					my $open_type = $args[2];
+					$door_entity->SetOpenType($open_type);
+				}
+			} elsif ($sub_command eq "setincline"){
+				if ($args[2]) {
+					my $door_incline = $args[2];
+					$door_entity->SetIncline($door_incline);
+				}
+				return;
+			} elsif ($sub_command eq "setinclineinc"){
+				if ($args[2]) {
+					my $door_incline_increase = $args[2];
+					my $door_incline = ($door_entity->GetIncline() + $door_incline_increase);
+					$door_entity->SetIncline($door_incline);
+				}
+				#::: Incline Options #::: 
+				if (!$args[2]) {
+					my $incline_message = "";
+					my %incline_options = (
+						1 => [.01, "Upright"],
+						2 => [65, "+ 45 Degrees"],
+						3 => [130, "+ 90 Degrees"],
+						4 => [195, "+ 135 Degrees"],
+						5 => [255, "+ 180 Degrees"],
+						6 => [320, "+ 225 Degrees"],
+						7 => [385, "+ 270 Degrees"],
+						8 => [450, "+ 315 Degrees"],
+						9 => [512.5, "+ 360 Degrees"],
+					);
+					my $incline_index = 1;
+					while ($incline_options{$incline_index}[0]) {
+						my ($incline_value, $incline_text) = @{$incline_options{$incline_index}};
+						$incline_message .= quest::saylink("#door setincline $incline_value", 1, $incline_text) . " | ";
+						$incline_index++;
+					}
+					my ($incline_plus_message, $incline_minus_message) = ("", "");
+					foreach my $plus_increment (0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100) {
+						my ($value, $message_value) = (-1, 1);
+						if ($plus_increment == 0) {
+							$value = $plus_increment;
+							$message_value = abs($value);
+						}
+						$incline_plus_message .= quest::saylink("#door setinclineinc $value", 1, " $message_value");
+					}
+					
+					foreach my $minus_increment (0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100) {
+						my ($value, $message_value) = (-1, 1);
+						if ($minus_increment == 0) {
+							$value = $minus_increment;
+							$message_value = abs($value);
+						}
+						$incline_minus_message .= quest::saylink("#door setinclineinc $value", 1, " $message_value");
+					}
+
+					plugin::Message("Incline: [$incline_message]");
+					plugin::Message("Increments: [$incline_minus_message - | + $incline_plus_message]");
+				}
+			} elsif ($sub_command eq "invertstate"){
+				my $invert_state = $args[2];
+				my $door_id = $door_entity->GetDoorDBID();
+				my $connect = plugin::LoadMySQL();				
+				my $query = "UPDATE `doors` SET `invert_state` = $invert_state WHERE `id` = $door_id";
+				$query_handle = $connect->prepare($query);
+				$query_handle->execute();
+				plugin::Message("Reload: " . quest::saylink("#reloadstatic", 0, "#reloadstatic"));
+			} elsif ($sub_command eq "edit"){
+				my $door_entity;
+				if ($client->GetEntityVariable("last_door_clicked") > 0) {
+					my $last_door_clicked = $client->GetEntityVariable("last_door_clicked");
+					$door_entity = $entity_list->GetDoorsByDoorID($last_door_clicked);
+				} elsif ($client->GetEntityVariable("last_door_created") > 0) {
+					my $last_door_created = $client->GetEntityVariable("last_door_created");
+					$door_entity = $entity_list->GetDoorsByID($last_door_created);
+				} else {
+					plugin::Message("You don't have a door selected to edit!");
+					return;
+				}
+				my $invert_state = "";
+				my ($door_id, $door_name, $door_x, $door_y, $door_z, $door_h, $door_size, $door_open_type) = ($door_entity->GetDoorID(), $door_entity->GetModelName(), $door_entity->GetX(), $door_entity->GetY(), $door_entity->GetZ(), $door_entity->GetHeading(), $door_entity->GetSize(), $door_entity->GetOpenType());
+				if ($door_id ~~ [1..254]) {
+					$invert_state = " Invert State [" . quest::saylink("#door invertstate 0", 1, 0) . " - " . quest::saylink("#door invertstate 1", 1, 1) . "]";
+				}
+				if (!$args[2] && !$args[3]) {
+					plugin::Message("Door ID: $door_id Door Name: $door_name Open Type: $door_open_type $invert_state");
+				}
+				my %move_options = (
+					"MoveX" => "X",
+					"MoveY" => "Y",
+					"MoveZ" => "Z",
+					"MoveH" => "H",
+				);				
+				if ($args[1] && !$args[2]){
+					my ($size_plus_message, $size_minus_message) = ("", "");
+					plugin::Message("[$door_name] [" . quest::saylink("#door save", 1, "Save") . "] [" . quest::saylink("#door changemodelqueue", 1, "Edit Model") . "]" . " [" . quest::saylink("#door setinclineinc", 1, "Edit Incline") . "]");
+					foreach my $move_option (sort {$a cmp $b} keys %move_options) {
+						my ($options_plus_message, $options_minus_message) = ("", "");
+						my $move_option_name = $move_options{$move_option};
+						foreach my $plus_increment (0, 5, 10, 15) {
+							if ($plus_increment != 0) {
+								my ($value, $message_value) = (-1, 1);
+								$value = $plus_increment;
+								$message_value = abs($value);
+								$options_plus_message .= quest::saylink("#door setinclineinc $value", 1, " $message_value");
+							}
+						}
+						foreach my $minus_increment (0, -5, -10, -15) {
+							my ($value, $message_value) = (-1, 1);
+							if ($minus_increment != 0) {
+								$value = $minus_increment;
+								$message_value = abs($value);
+								$options_minus_message .= quest::saylink("#door edit $move_option $value", 1, " $message_value");
+							}
+						}
+						plugin::Message("[$options_minus_message - [$move_option_name] +$options_plus_message]");
+					}					
+					
+					foreach my $plus_increment (0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100) {
+						my ($value, $message_value) = (-1, 1);
+						if ($plus_increment != 0) {
+							$value = $plus_increment;
+							$message_value = abs($value);
+							$size_plus_message .= quest::saylink("#door edit SetSize $value", 1, " $message_value");
+						}
+					}
+
+					foreach my $minus_increment (0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100) {
+						my ($value, $message_value) = (-1, 1);
+						if ($minus_increment != 0) {
+							$value = $minus_increment;
+							$message_value = abs($value);
+							$size_minus_message .= quest::saylink("#door edit SetSize $value", 1, " $message_value");
+						}
+					}
+					plugin::Message("[$size_minus_message - [Size] + $size_plus_message]");
+				}
+
+				my ($x, $y, $z, $h, $size) = (0, 0, 0, 0, 0);
+				if ($args[3]) {
+					my ($option, $value) = ($args[2], $args[3]);
+					if ($option eq "MoveX") {
+						$x = $value;
+					} elsif ($option eq "MoveY") {
+						$y = $value;
+					} elsif ($option eq "MoveZ") {
+						$z = $value;
+					} elsif ($option eq "MoveH") {
+						$h = $value;
+					} elsif ($option eq "SetSize") {
+						$size = $value;
+					}
+					my $new_x = ($door_x + $x);
+					my $new_y = ($door_y + $y);
+					my $new_z = ($door_z + $z);
+					my $new_h = ($door_h + $h);
+					my $new_size = ($door_size + $size);
+					$door_entity->SetLocation($new_x, $new_y, $new_z);
+					$door_entity->SetHeading($new_y);
+					$door_entity->SetSize($new_size);
+				}
+				my %spawn_data = (
+					51 => [[-15, 0, 0], [-15, 0, 5]],
+					52 => [[15, 0, 0], [15, 0, 5]],
+					53 => [[0, -15, 0], [0 -15, 5]],
+					54 => [[0, 15, 0], [0, 15, 5]],
+				);
+				#::: Coordinate Helpers
+				# REPLACE INTO `npc_types` (`id`, `name`, `lastname`, `level`, `race`, `class`, `bodytype`, `hp`, `mana`, `gender`, `texture`, `helmtexture`, `size`, `hp_regen_rate`, `mana_regen_rate`, `loottable_id`, `merchant_id`, `alt_currency_id`, `npc_spells_id`, `npc_faction_id`, `adventure_template_id`, `trap_template`, `mindmg`, `maxdmg`, `attack_count`, `npcspecialattks`, `aggroradius`, `face`, `luclin_hairstyle`, `luclin_haircolor`, `luclin_eyecolor`, `luclin_eyecolor2`, `luclin_beardcolor`, `luclin_beard`, `drakkin_heritage`, `drakkin_tattoo`, `drakkin_details`, `armortint_id`, `armortint_red`, `armortint_green`, `armortint_blue`, `d_meele_texture1`, `d_meele_texture2`, `prim_melee_type`, `sec_melee_type`, `runspeed`, `MR`, `CR`, `DR`, `FR`, `PR`, `Corrup`, `see_invis`, `see_invis_undead`, `qglobal`, `AC`, `npc_aggro`, `spawn_limit`, `attack_speed`, `findable`, `STR`, `STA`, `DEX`, `AGI`, `_INT`, `WIS`, `CHA`, `see_hide`, `see_improved_hide`, `trackable`, `isbot`, `exclude`, `ATK`, `Accuracy`, `slow_mitigation`, `version`, `maxlevel`, `scalerate`, `private_corpse`, `unique_spawn_by_name`, `underwater`, `isquest`, `emoteid`) VALUES (51, '-X', NULL, 1, 127, 1, 11, 31, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 'ZiGH', 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 28, 1.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 75, 75, 75, 80, 75, 75, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0);
+				# REPLACE INTO `npc_types` (`id`, `name`, `lastname`, `level`, `race`, `class`, `bodytype`, `hp`, `mana`, `gender`, `texture`, `helmtexture`, `size`, `hp_regen_rate`, `mana_regen_rate`, `loottable_id`, `merchant_id`, `alt_currency_id`, `npc_spells_id`, `npc_faction_id`, `adventure_template_id`, `trap_template`, `mindmg`, `maxdmg`, `attack_count`, `npcspecialattks`, `aggroradius`, `face`, `luclin_hairstyle`, `luclin_haircolor`, `luclin_eyecolor`, `luclin_eyecolor2`, `luclin_beardcolor`, `luclin_beard`, `drakkin_heritage`, `drakkin_tattoo`, `drakkin_details`, `armortint_id`, `armortint_red`, `armortint_green`, `armortint_blue`, `d_meele_texture1`, `d_meele_texture2`, `prim_melee_type`, `sec_melee_type`, `runspeed`, `MR`, `CR`, `DR`, `FR`, `PR`, `Corrup`, `see_invis`, `see_invis_undead`, `qglobal`, `AC`, `npc_aggro`, `spawn_limit`, `attack_speed`, `findable`, `STR`, `STA`, `DEX`, `AGI`, `_INT`, `WIS`, `CHA`, `see_hide`, `see_improved_hide`, `trackable`, `isbot`, `exclude`, `ATK`, `Accuracy`, `slow_mitigation`, `version`, `maxlevel`, `scalerate`, `private_corpse`, `unique_spawn_by_name`, `underwater`, `isquest`, `emoteid`) VALUES (52, '+X', NULL, 1, 127, 1, 11, 31, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 'ZiGH', 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 28, 1.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 75, 75, 75, 80, 75, 75, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0);
+				# REPLACE INTO `npc_types` (`id`, `name`, `lastname`, `level`, `race`, `class`, `bodytype`, `hp`, `mana`, `gender`, `texture`, `helmtexture`, `size`, `hp_regen_rate`, `mana_regen_rate`, `loottable_id`, `merchant_id`, `alt_currency_id`, `npc_spells_id`, `npc_faction_id`, `adventure_template_id`, `trap_template`, `mindmg`, `maxdmg`, `attack_count`, `npcspecialattks`, `aggroradius`, `face`, `luclin_hairstyle`, `luclin_haircolor`, `luclin_eyecolor`, `luclin_eyecolor2`, `luclin_beardcolor`, `luclin_beard`, `drakkin_heritage`, `drakkin_tattoo`, `drakkin_details`, `armortint_id`, `armortint_red`, `armortint_green`, `armortint_blue`, `d_meele_texture1`, `d_meele_texture2`, `prim_melee_type`, `sec_melee_type`, `runspeed`, `MR`, `CR`, `DR`, `FR`, `PR`, `Corrup`, `see_invis`, `see_invis_undead`, `qglobal`, `AC`, `npc_aggro`, `spawn_limit`, `attack_speed`, `findable`, `STR`, `STA`, `DEX`, `AGI`, `_INT`, `WIS`, `CHA`, `see_hide`, `see_improved_hide`, `trackable`, `isbot`, `exclude`, `ATK`, `Accuracy`, `slow_mitigation`, `version`, `maxlevel`, `scalerate`, `private_corpse`, `unique_spawn_by_name`, `underwater`, `isquest`, `emoteid`) VALUES (53, '-Y', NULL, 1, 127, 1, 11, 31, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 'ZiGH', 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 28, 1.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 75, 75, 75, 80, 75, 75, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0);
+				# REPLACE INTO `npc_types` (`id`, `name`, `lastname`, `level`, `race`, `class`, `bodytype`, `hp`, `mana`, `gender`, `texture`, `helmtexture`, `size`, `hp_regen_rate`, `mana_regen_rate`, `loottable_id`, `merchant_id`, `alt_currency_id`, `npc_spells_id`, `npc_faction_id`, `adventure_template_id`, `trap_template`, `mindmg`, `maxdmg`, `attack_count`, `npcspecialattks`, `aggroradius`, `face`, `luclin_hairstyle`, `luclin_haircolor`, `luclin_eyecolor`, `luclin_eyecolor2`, `luclin_beardcolor`, `luclin_beard`, `drakkin_heritage`, `drakkin_tattoo`, `drakkin_details`, `armortint_id`, `armortint_red`, `armortint_green`, `armortint_blue`, `d_meele_texture1`, `d_meele_texture2`, `prim_melee_type`, `sec_melee_type`, `runspeed`, `MR`, `CR`, `DR`, `FR`, `PR`, `Corrup`, `see_invis`, `see_invis_undead`, `qglobal`, `AC`, `npc_aggro`, `spawn_limit`, `attack_speed`, `findable`, `STR`, `STA`, `DEX`, `AGI`, `_INT`, `WIS`, `CHA`, `see_hide`, `see_improved_hide`, `trackable`, `isbot`, `exclude`, `ATK`, `Accuracy`, `slow_mitigation`, `version`, `maxlevel`, `scalerate`, `private_corpse`, `unique_spawn_by_name`, `underwater`, `isquest`, `emoteid`) VALUES (54, '+Y', NULL, 1, 127, 1, 11, 31, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 'ZiGH', 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 28, 1.25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 75, 75, 75, 80, 75, 75, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0);
+				foreach my $npc_id (sort {$a <=> $b} keys %spawn_data) {
+					if (!plugin::Spawned($npc_id)) {
+						my ($x_mod, $y_mod, $z_mod) = @{$spawn_data{$npc_id}[0]};
+						my $spawn_x = ($door_x + $x + $x_mod);
+						my $spawn_y = ($door_y + $y + $y_mod);
+						my $spawn_z = ($door_z + $z + $z_mod);
+						my $spawn_h = $door_h;
+						plugin::Spawn2($npc_id, 1, $spawn_x, $spawn_y, $spawn_z, $spawn_h);
+					} else {
+						my $helper_entity = $entity_list->GetNPCByNPCTypeID($npc_id);
+						my ($x_mod, $y_mod, $z_mod) = @{$spawn_data{$npc_id}[1]};
+						my $move_x = ($door_x + $x + $x_mod);
+						my $move_y = ($door_y + $y + $y_mod);
+						my $move_z = ($door_z + $z + $z_mod);
+						$helper_entity->GMMove($move_x, $move_y, $move_z, 0);			
+					}
+				}
+			}
+		}
+	}
+}
+
+sub HandleDoorClick {
+	my $doorid = plugin::val('doorid');
+	my $client = plugin::val('client');
+	plugin::Message("Door $doorid [" . quest::saylink("Open Door $doorid", 1, "Open Door") . "] [" . quest::saylink("Close Door $doorid", 1, "Close Door") . "]  [" . quest::saylink("#door edit", 1, "Edit Door") . "]");
+	$client->SetEntityVariable("last_door_clicked", $doorid);
+}
